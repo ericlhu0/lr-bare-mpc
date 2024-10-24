@@ -16,6 +16,7 @@ def create_planner(
     dt: float,
     dynamics: RepositioningDynamicsModel,
     seed: int,
+    num_rollouts: int = 10,
 ) -> RepositioningPlanner:
     """Helper function for creating planners."""
 
@@ -30,7 +31,13 @@ def create_planner(
 
     if name == "predictive-sampling":
         return PredictiveSamplingPlanner(
-            scene_config=scene_config, T=T, dt=dt, dynamics=dynamics, seed=seed
+            scene_config=scene_config,
+            T=T,
+            dt=dt,
+            dynamics=dynamics,
+            seed=seed,
+            replan_dt=dt,
+            num_rollouts=num_rollouts,
         )
 
     if name == "rrt-position":
