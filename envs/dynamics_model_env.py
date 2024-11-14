@@ -25,9 +25,10 @@ class DynamicsModelEnv(RepositioningEnv):
         *args,
         **kwargs
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__()
+
         if scene_config is None:
-            scene_config = self._get_default_scene_config()
+            scene_config = self._get_default_scene_config(**kwargs)
         self._scene_config = scene_config
 
         if use_gui:
@@ -66,7 +67,7 @@ class DynamicsModelEnv(RepositioningEnv):
             )
 
     @abc.abstractmethod
-    def _get_default_scene_config(self) -> RepositioningSceneConfig:
+    def _get_default_scene_config(self, *args, **kwargs) -> RepositioningSceneConfig:
         """Subclasses should define a default scene config."""
 
     def get_scene_config(self) -> RepositioningSceneConfig:

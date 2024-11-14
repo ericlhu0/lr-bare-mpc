@@ -23,7 +23,7 @@ class PredictiveSamplingPlanner(RepositioningPlanner):
         num_control_points: int = 10,
         replan_dt: float = 1e-2,
         *args,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._num_rollouts = num_rollouts
@@ -78,66 +78,6 @@ class PredictiveSamplingPlanner(RepositioningPlanner):
         # Return just the first action.
         return self._current_plan[0.0]
 
-    def step_fixed_horizon(self, state: RepositioningState) -> JointTorques:
-        # Warm start by advancing the last solution by one step.
-        nominal = self._current_plan.get_sub_trajectory(
-            self._dt, self._current_plan.duration
-        )
-
-        def extend_trajectory(
-            nominal: Trajectory[JointTorques],
-        ) -> Trajectory[JointTorques]:
-            """Extend nominal trajectory by one step, sampling around the last
-            torque."""
-            last_torque: JointTorques = nominal[nominal.duration]
-            extended = concatenate_trajectories(
-                [
-                    nominal,
-                    self._point_sequence_to_trajectory(
-                        [
-                            last_torque,
-                            self._rng.normal(last_torque, self._noise_scale),
-                        ],
-                        self._T / (self._num_control_points - 1),
-                    ),
-                ]
-            )
-
-            return extended
-
-        if nominal.duration < self._T:
-            nominal = extend_trajectory(nominal)
-
-        sample_list: list[Trajectory[JointTorques]] = [nominal]
-
-        zero_action: list[Trajectory[JointTorques]] = [
-            self._point_sequence_to_trajectory(
-                np.zeros((self._num_control_points, self._num_active_dof)),
-                self._T / (self._num_control_points - 1),
-            )
-        ]
-
-        # Measure time for sampling new candidates
-        start_time = time.time()
-        num_samples = self._num_rollouts - len(sample_list) - len(zero_action)
-        # num_samples = self._num_rollouts - len(sample_list)
-
-        new_samples = self._sample_from_nominal(nominal, num_samples)
-        sample_list.extend(new_samples)
-        sample_list.extend(zero_action)
-        end_time = time.time()
-
-        # Measure time for picking the best one
-        start_time = time.time()
-        self._current_plan = min(
-            sample_list,
-            key=lambda s: self._score_trajectory_fixed_horizon(s, state, self._T),
-        )
-        end_time = time.time()
-        print(f"picking min:   {end_time - start_time}")
-
-        # Return just the first action.
-        return self._current_plan[0.0]
 
     def _get_initialization(self) -> Trajectory[JointTorques]:
         control_points = self._rng.normal(
@@ -243,3 +183,67 @@ class PredictiveSamplingPlanner(RepositioningPlanner):
             seg = TrajectorySegment(start, end, dt, _interpolate_fn, _distance_fn)
             segments.append(seg)
         return concatenate_trajectories(segments)
+
+    def extend_trajectory(
+        self,
+        nominal: Trajectory[JointTorques],
+    ) -> Trajectory[JointTorques]:
+        """Extend nominal trajectory by one step, sampling around the last
+        torque."""
+        last_torque: JointTorques = nominal[nominal.duration]
+        extended = concatenate_trajectories(
+            [
+                nominal,
+                self._point_sequence_to_trajectory(
+                    [
+                        last_torque,
+                        self._rng.normal(last_torque, self._noise_scale),
+                    ],
+                    self._T / (self._num_control_points - 1),
+                ),
+            ]
+        )
+
+        return extended
+
+    def step_fixed_horizon(self, state: RepositioningState) -> JointTorques:
+        # Warm start by advancing the last solution by one step.
+        nominal = self._current_plan.get_sub_trajectory(
+            self._dt, self._current_plan.duration
+        )
+
+        
+
+        if nominal.duration <= self._T:
+            nominal = self.extend_trajectory(nominal)
+
+        sample_list: list[Trajectory[JointTorques]] = [nominal]
+
+        zero_action: list[Trajectory[JointTorques]] = [
+            self._point_sequence_to_trajectory(
+                np.zeros((self._num_control_points, self._num_active_dof)),
+                self._T / (self._num_control_points - 1),
+            )
+        ]
+
+        # Measure time for sampling new candidates
+        start_time = time.time()
+        num_samples = self._num_rollouts - len(sample_list) - len(zero_action)
+        # num_samples = self._num_rollouts - len(sample_list)
+
+        new_samples = self._sample_from_nominal(nominal, num_samples)
+        sample_list.extend(new_samples)
+        sample_list.extend(zero_action)
+        end_time = time.time()
+
+        # Measure time for picking the best one
+        start_time = time.time()
+        self._current_plan = min(
+            sample_list,
+            key=lambda s: self._score_trajectory_fixed_horizon(s, state, self._T),
+        )
+        end_time = time.time()
+        print(f"picking min:   {end_time - start_time}")
+
+        # Return just the first action.
+        return self._current_plan[0.0]

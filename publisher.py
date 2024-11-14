@@ -6,11 +6,24 @@ from pathlib import Path
 
 import imageio.v2 as iio
 import pybullet as p
+import rospy
+from sensor_msgs.msg import JointState
 from tqdm import tqdm
 
 from dynamics import create_dynamics_model, create_robot
 from envs import create_env
 from planners import PredictiveSamplingPlanner, create_planner
+
+
+def wait_for_init_config() -> list[float]:
+    """Wait for initial robot config from ROS <topic>."""
+    rospy.loginfo("Waiting for a message on '/franka_motion_control/joint_states'...")
+    received_msg: JointState = rospy.wait_for_message(
+        "/franka_motion_control/joint_states", JointState
+    )
+    print(received_msg.position)
+    print(received_msg.position[:2] + received_msg.position[3:])
+    return received_msg.position[:2] + received_msg.position[3:]
 
 
 def _main(
@@ -31,7 +44,15 @@ def _main(
     video_dir = Path(__file__).parent / "videos"
     os.makedirs(video_dir, exist_ok=True)
 
-    env = create_env(env_name, real_dynamics_name, dt, use_gui)
+    rospy.init_node("mpc_controller")
+    init_robot_config: list[float] = wait_for_init_config()
+
+    env = create_env(
+        env_name, real_dynamics_name, dt, use_gui, panda_init_joint_positions=init_robot_config
+    )
+
+    # input(f"initial setup, {env.get_state()}")
+
     scene_config = env.get_scene_config()
     sim_physics_client_id = p.connect(p.DIRECT)
     dynamics_model = create_dynamics_model(
@@ -52,39 +73,41 @@ def _main(
 
     init_state = env.get_state()
     goal_state = env.get_goal()
+
+    # input(
+    #     f"initial setup finished. Press Enter to start the control loop.,  {env.get_state()}"
+    # )
+
     planner.reset(init_state, goal_state)
 
     if make_video:
         imgs = [env.render()]
 
-    i = 0
+    # Initialize the ROS publisher node
+    pub = rospy.Publisher("/lr_torque_command/commands", JointState, queue_size=1)
 
-    while True:
+    i = 0
+    while not rospy.is_shutdown():
         tstart = time.time()
         i += 1
         state = env.get_state()
         t1 = time.time()
         action = planner.step_fixed_horizon(state)
+
+        # Publish the torque command
+        torque_command = JointState()
+        torque_command.header.stamp = rospy.Time.now()
+        torque_command.effort = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        print("torque_command: ", torque_command)
+        pub.publish(torque_command)
+
         t2 = time.time()
         env.step(action)
         tend = time.time()
         elapsed = tend - tstart
         print(f"planning time: {t2 - t1}")
         print(f"frequency:     {1/elapsed} Hz")
-
-        if make_video and (i % render_interval == 0):
-            imgs.append(env.render())
-
         print("next step")
-
-    if make_video:
-        video_outfile = (
-            video_dir
-            / f"{env_name}_{sim_dynamics_name}_{real_dynamics_name}_{planner_name}_{seed}.mp4"
-        )
-        video_fps = (1 / dt) * video_fps_scale
-        iio.mimsave(video_outfile, imgs, fps=video_fps)
-        print(f"Wrote out to {video_outfile}")
 
 
 if __name__ == "__main__":

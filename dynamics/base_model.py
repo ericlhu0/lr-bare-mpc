@@ -21,6 +21,8 @@ class RepositioningDynamicsModel(abc.ABC):
         self.active_arm = active_arm
         self.passive_arm = passive_arm
         self.dt = dt
+        # p.setRealTimeSimulation(1)
+        
 
         # Need to disable default velocity control to use torque control.
         for robot in [active_arm, passive_arm]:
