@@ -209,7 +209,7 @@ class PredictiveSamplingPlanner(RepositioningPlanner):
     def step_fixed_horizon(self, state: RepositioningState) -> JointTorques:
         # Warm start by advancing the last solution by one step.
         nominal = self._current_plan.get_sub_trajectory(
-            self._dt, self._current_plan.duration
+            self._T / (self._num_control_points - 1), self._current_plan.duration
         )
 
         
